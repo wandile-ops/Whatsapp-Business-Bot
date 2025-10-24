@@ -1,0 +1,19 @@
+{
+  "name": "whatsapp-business-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp bot for business plan collection",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "airtable": "^0.11.6",
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
