@@ -1,4 +1,20 @@
-// In your index.js - Webhook handler
+require('dotenv').config();
+const express = require('express');
+const bodyParser = require('body-parser');
+const axios = require('axios');
+
+// Import your form logic (adjust the path if needed)
+const formFlow = require('./formFlow'); 
+
+const app = express();
+app.use(bodyParser.json());
+
+// ✅ Root route (Render health check)
+app.get('/', (req, res) => {
+  res.send('✅ WhatsApp Bot is running');
+});
+
+// ✅ Webhook route (Your provided code)
 app.post('/webhook', async (req, res) => {
   try {
     console.log('Received webhook:', JSON.stringify(req.body, null, 2));
@@ -13,7 +29,7 @@ app.post('/webhook', async (req, res) => {
         const phoneNumber = message.from;
         let userMessage = '';
         
-        // Handle different message types
+        // Handle text and interactive messages
         if (message.type === 'text') {
           userMessage = message.text.body;
         } else if (message.type === 'interactive') {
@@ -27,7 +43,7 @@ app.post('/webhook', async (req, res) => {
         
         console.log(`📱 Message from ${phoneNumber}: ${userMessage}`);
         
-        // Process the message through form flow
+        // Process conversation flow
         await formFlow.handleMessage(phoneNumber, userMessage);
       }
     }
@@ -38,3 +54,9 @@ app.post('/webhook', async (req, res) => {
     res.status(500).send('ERROR');
   }
 });
+
+// ✅ Port handling for Render
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () =>
+  console.log(`🚀 Server running on http://localhost:${PORT}`)
+);
