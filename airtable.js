@@ -1,4 +1,4 @@
-// airtable.js - FIXED FOR MULTI-SELECT FIELDS
+// airtable.js - FIXED VERSION (Only uses existing field options)
 const Airtable = require('airtable');
 const config = require('./config');
 
@@ -20,7 +20,7 @@ class AirtableService {
     try {
       console.log('📝 Creating new business plan record in Airtable...');
       
-      // Format data for Airtable with proper multi-select handling
+      // Map user inputs to existing Airtable field options
       const recordData = {
         // Personal Information
         'Full Name': data.fullName || '',
@@ -32,16 +32,16 @@ class AirtableService {
         // Business Details
         'Business Name': data.businessName || '',
         'Business Registration Number': data.businessRegNumber || 'N/A',
-        'Business Type': data.businessType || '',
+        'Business Type': this.mapToExistingOption(data.businessType, 'Business Type'),
         'Year Established': data.yearEstablished || null,
-        'Business Stage': data.businessStage || '',
+        'Business Stage': this.mapToExistingOption(data.businessStage, 'Business Stage'),
         
-        // Multi-select fields - Airtable expects arrays
-        'Ownership & Leadership': this.formatMultiSelectField(data.ownership),
-        'Number of Employees': data.employees || '',
+        // Multi-select fields - Use only existing options
+        'Ownership & Leadership': this.mapMultiSelectToExisting(data.ownership, 'Ownership & Leadership'),
+        'Number of Employees': this.mapToExistingOption(data.employees, 'Number of Employees'),
         
         // Business Operations
-        'Primary Sector': data.primarySector || '',
+        'Primary Sector': this.mapToExistingOption(data.primarySector, 'Primary Sector'),
         'Subsector': data.subsector || '',
         'Business Description': data.businessDescription || '',
         'Target Market': data.targetMarket || '',
@@ -49,18 +49,17 @@ class AirtableService {
         'Key Competitors': data.competitors || '',
         
         // More multi-select fields
-        'Marketing Channels': this.formatMultiSelectField(data.marketingChannels),
-        'Funding Type': this.formatMultiSelectField(data.fundingType)
+        'Marketing Channels': this.mapMultiSelectToExisting(data.marketingChannels, 'Marketing Channels'),
+        'Funding Type': this.mapMultiSelectToExisting(data.fundingType, 'Funding Type')
       };
 
-      console.log('📦 Record data prepared:', Object.keys(recordData).length, 'fields');
-      
-      // Debug multi-select fields
-      console.log('🔍 Multi-select fields:');
-      console.log('   Ownership:', JSON.stringify(recordData['Ownership & Leadership']));
-      console.log('   Marketing:', JSON.stringify(recordData['Marketing Channels']));
-      console.log('   Funding:', JSON.stringify(recordData['Funding Type']));
+      console.log('📦 Formatted record data for Airtable:');
+      console.log('   Employees:', recordData['Number of Employees']);
+      console.log('   Ownership:', recordData['Ownership & Leadership']);
+      console.log('   Marketing:', recordData['Marketing Channels']);
+      console.log('   Funding:', recordData['Funding Type']);
 
+      // Create the record
       const record = await this.table.create(recordData);
       const recordId = record.getId();
       
@@ -68,65 +67,117 @@ class AirtableService {
       return recordId;
 
     } catch (error) {
-      console.error('❌ Error creating Airtable record:', error);
+      console.error('❌ ERROR creating Airtable record:');
+      console.error('   Error:', error.message);
       
-      // Enhanced error logging
-      if (error.error === 'NOT_FOUND') {
-        console.error('🔍 Airtable base or table not found. Check your base ID and table name.');
-      } else if (error.statusCode === 401) {
-        console.error('🔑 Airtable authentication failed. Check your API key.');
-      } else if (error.statusCode === 422) {
-        console.error('📋 Airtable validation error. Check field types and required fields.');
-        console.error('Validation message:', error.message);
+      if (error.statusCode === 422) {
+        console.error('📋 Validation error - field options mismatch');
+        console.error('   Make sure all selected options exist in your Airtable table');
       }
       
-      throw new Error(`Failed to create business plan record: ${error.message}`);
+      throw new Error(`Airtable error: ${error.message}`);
     }
   }
 
   /**
-   * Format multi-select fields for Airtable (convert to array)
-   * @param {Array|string} field - Field data to format
-   * @returns {Array} - Formatted field value as array
+   * Map user input to existing Airtable field options
+   * This prevents creating new options that the API key doesn't have permission for
    */
-  formatMultiSelectField(field) {
-    if (!field) return [];
+  mapToExistingOption(userInput, fieldName) {
+    if (!userInput) return '';
     
-    if (Array.isArray(field)) {
-      return field;
+    const userInputStr = userInput.toString().toLowerCase().trim();
+    
+    // Map common inputs to existing Airtable options
+    const optionMaps = {
+      'Number of Employees': {
+        '0-5': '0–5',
+        '0–5': '0–5',
+        '0-5 employees': '0–5',
+        '6-20': '6–20', 
+        '6–20': '6–20',
+        '6-20 employees': '6–20',
+        '21-50': '21–50',
+        '21–50': '21–50',
+        '21-50 employees': '21–50',
+        '51-100': '51–100',
+        '51–100': '51–100',
+        '51-100 employees': '51–100',
+        '100+': '100+',
+        '100+ employees': '100+'
+      },
+      'Business Type': {
+        'sole proprietorship': 'Sole Proprietorship',
+        'partnership': 'Partnership',
+        'private company': 'Private Company (Pty Ltd)',
+        'private company (pty ltd)': 'Private Company (Pty Ltd)',
+        'cooperative': 'Cooperative',
+        'non-profit': 'Non-Profit Organization',
+        'non-profit organization': 'Non-Profit Organization',
+        'social enterprise': 'Social Enterprise',
+        'other': 'Other'
+      },
+      'Business Stage': {
+        'idea': 'Idea / Concept',
+        'idea / concept': 'Idea / Concept',
+        'startup': 'Startup (0–3 years)',
+        'startup (0-3 years)': 'Startup (0–3 years)',
+        'sme': 'Small & Medium Enterprise (SME)',
+        'small business': 'Small & Medium Enterprise (SME)',
+        'small & medium enterprise': 'Small & Medium Enterprise (SME)',
+        'scaling': 'Scaling / Growth Stage',
+        'scaling / growth stage': 'Scaling / Growth Stage',
+        'growth': 'Scaling / Growth Stage',
+        'other': 'Other'
+      },
+      'Primary Sector': {
+        'agriculture': 'Agriculture & Agro-Processing',
+        'agriculture & agro-processing': 'Agriculture & Agro-Processing',
+        'technology': 'Technology',
+        'retail': 'Retail & Wholesale',
+        'retail & wholesale': 'Retail & Wholesale',
+        'healthcare': 'Healthcare & Wellness',
+        'healthcare & wellness': 'Healthcare & Wellness',
+        'education': 'Education & Training',
+        'education & training': 'Education & Training',
+        'tourism': 'Tourism & Hospitality',
+        'tourism & hospitality': 'Tourism & Hospitality',
+        'energy': 'Energy & Renewable Energy',
+        'energy & renewable energy': 'Energy & Renewable Energy',
+        'construction': 'Construction & Engineering',
+        'construction & engineering': 'Construction & Engineering',
+        'other': 'Other'
+      }
+    };
+
+    const fieldMap = optionMaps[fieldName];
+    if (fieldMap && fieldMap[userInputStr]) {
+      console.log(`   Mapped "${userInput}" → "${fieldMap[userInputStr]}" for ${fieldName}`);
+      return fieldMap[userInputStr];
     }
+
+    // If no mapping found, return the original (will fail if option doesn't exist)
+    console.log(`   Using original: "${userInput}" for ${fieldName}`);
+    return userInput;
+  }
+
+  /**
+   * Map multi-select arrays to existing options
+   */
+  mapMultiSelectToExisting(userArray, fieldName) {
+    if (!userArray || !Array.isArray(userArray)) return [];
     
-    // If it's a string, try to split by comma or return as single item array
-    if (typeof field === 'string') {
-      return field.split(',').map(item => item.trim()).filter(item => item);
-    }
-    
-    return [];
+    return userArray.map(item => this.mapToExistingOption(item, fieldName))
+                   .filter(item => item); // Remove empty strings
   }
 
   /**
    * Update an existing business plan record
-   * @param {string} recordId - The Airtable record ID to update
-   * @param {Object} updates - Fields to update
-   * @returns {Promise<Object>} - The updated record
    */
   async updateBusinessPlan(recordId, updates) {
     try {
       console.log('🔄 Updating Airtable record:', recordId);
-      
-      // Format multi-select fields in updates
-      const formattedUpdates = { ...updates };
-      if (updates.ownership) {
-        formattedUpdates['Ownership & Leadership'] = this.formatMultiSelectField(updates.ownership);
-      }
-      if (updates.marketingChannels) {
-        formattedUpdates['Marketing Channels'] = this.formatMultiSelectField(updates.marketingChannels);
-      }
-      if (updates.fundingType) {
-        formattedUpdates['Funding Type'] = this.formatMultiSelectField(updates.fundingType);
-      }
-
-      const record = await this.table.update(recordId, formattedUpdates);
+      const record = await this.table.update(recordId, updates);
       console.log('✅ Successfully updated record:', recordId);
       return record;
 
@@ -138,8 +189,6 @@ class AirtableService {
 
   /**
    * Find the most recent record by phone number
-   * @param {string} phoneNumber - WhatsApp phone number
-   * @returns {Promise<Object|null>} - Record data or null if not found
    */
   async findRecordByPhone(phoneNumber) {
     try {
@@ -172,8 +221,6 @@ class AirtableService {
 
   /**
    * Escape values for Airtable formula syntax
-   * @param {string} value - Value to escape
-   * @returns {string} - Escaped value
    */
   escapeFormulaValue(value) {
     if (typeof value !== 'string') return value;
@@ -182,16 +229,11 @@ class AirtableService {
 
   /**
    * Test Airtable connection
-   * @returns {Promise<boolean>} - Connection status
    */
   async testConnection() {
     try {
       console.log('🔌 Testing Airtable connection...');
-      
-      const records = await this.table.select({
-        maxRecords: 1
-      }).firstPage();
-
+      const records = await this.table.select({ maxRecords: 1 }).firstPage();
       console.log('✅ Airtable connection successful');
       return true;
 
