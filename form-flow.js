@@ -1,4 +1,4 @@
-// form-flow.js - COMPLETE FIXED VERSION
+// form-flow.js - FIXED VERSION
 const whatsappService = require('./whatsapp');
 const airtableService = require('./airtable');
 
@@ -198,10 +198,10 @@ Let's start with Section 1: Personal Information
         { title: 'Other' }
       ];
 
-      await whatsappService.sendList(phoneNumber,
-        '*Business Type:*\nPlease select your business type from the list below:',
+      await whatsappService.sendSimpleList(phoneNumber,
+        '*Business Type:*\nPlease select your business type:',
         'Business Types',
-        [{ title: 'Business Types', rows: businessTypes }]
+        businessTypes
       );
     
     } else if (field === 'businessType') {
@@ -229,10 +229,10 @@ Let's start with Section 1: Personal Information
         { title: 'Other' }
       ];
 
-      await whatsappService.sendList(phoneNumber,
+      await whatsappService.sendSimpleList(phoneNumber,
         '*Business Stage:*\nSelect the current stage of your business:',
         'Business Stages',
-        [{ title: 'Business Stages', rows: businessStages }]
+        businessStages
       );
     
     } else if (field === 'businessStage') {
@@ -263,7 +263,7 @@ Let's start with Section 1: Personal Information
       
       if (session.data.ownership.length === 0) {
         await whatsappService.sendTextMessage(phoneNumber,
-          '❌ You must indicate women ownership or leadership. Please select at least one option.');
+          '❌ You must indicate women ownership or leadership. Please select at least one option.\n\nYou can type: 1, 2, or 3');
         return;
       }
       
@@ -277,10 +277,10 @@ Let's start with Section 1: Personal Information
         { title: '100+ employees' }
       ];
 
-      await whatsappService.sendList(phoneNumber,
+      await whatsappService.sendSimpleList(phoneNumber,
         '*Number of Employees:*\nSelect the number of employees in your business:',
         'Employee Count',
-        [{ title: 'Employee Ranges', rows: employeeRanges }]
+        employeeRanges
       );
     
     } else if (field === 'employees') {
@@ -309,10 +309,10 @@ Let's start with Section 1: Personal Information
       { title: 'Other' }
     ];
 
-    await whatsappService.sendList(phoneNumber,
+    await whatsappService.sendSimpleList(phoneNumber,
       '🏭 *Section 3: Business Sector*\n\n*Primary Sector:*\nSelect your primary business sector:',
       'Business Sectors',
-      [{ title: 'Primary Sectors', rows: sectors }]
+      sectors
     );
   }
 
@@ -389,65 +389,80 @@ Describe your unique advantages:`);
       session.currentField = 'competitors';
       await whatsappService.sendTextMessage(phoneNumber,
         `🏆 *Key Competitors:* (Optional)
-If you know your main competitors, please list them here.\nIf not, type 'Skip' or 'None':`);
+If you know your main competitors, please list them here.\nIf not, type 'Skip':`);
     
     } else if (field === 'competitors') {
-      // Handle competitors response properly
-      if (message.toLowerCase() === 'skip' || message.toLowerCase() === 'none') {
-        session.data.competitors = '';
-      } else {
+      if (message.toLowerCase() !== 'skip') {
         session.data.competitors = message;
       }
-      
-      // Move to marketing channels - send the buttons
       session.currentField = 'marketingChannels';
       
-      await whatsappService.sendButtons(phoneNumber,
+      // FIXED: Send marketing channels as simple text first, then buttons
+      await whatsappService.sendTextMessage(phoneNumber,
         `📢 *Marketing Channels:*
-Select your main marketing channels (tap one button):
+We'll now ask about your marketing channels. You'll see interactive buttons shortly...`);
 
-1. Social Media (Facebook, Instagram, TikTok)
-2. WhatsApp / Messaging Apps  
-3. Physical Stores / Pop-ups
-4. E-commerce / Website
-5. Other`,
-        [
-          { title: '1. Social Media' },
-          { title: '2. WhatsApp' },
-          { title: '3. Physical Stores' },
-          { title: '4. E-commerce' },
-          { title: '5. Other' }
-        ]
-      );
+      // Wait a moment then send buttons
+      setTimeout(async () => {
+        await whatsappService.sendButtons(phoneNumber,
+          `Select your main marketing channels:`,
+          [
+            { title: '1. Social Media' },
+            { title: '2. WhatsApp' },
+            { title: '3. Physical Stores' },
+            { title: '4. E-commerce' },
+            { title: '5. Other' }
+          ]
+        );
+      }, 1000);
     
     } else if (field === 'marketingChannels') {
-      // Handle marketing channels selection
       if (!session.data.marketingChannels) session.data.marketingChannels = [];
       
-      // Clear previous selections and add the new one
-      session.data.marketingChannels = [];
-      
+      // Handle both button responses and text numbers
       if (message.includes('1') || message.toLowerCase().includes('social')) {
         session.data.marketingChannels.push('Social Media (Facebook, Instagram, TikTok)');
-      } else if (message.includes('2') || message.toLowerCase().includes('whatsapp')) {
+      }
+      if (message.includes('2') || message.toLowerCase().includes('whatsapp')) {
         session.data.marketingChannels.push('WhatsApp / Messaging Apps');
-      } else if (message.includes('3') || message.toLowerCase().includes('physical')) {
+      }
+      if (message.includes('3') || message.toLowerCase().includes('physical')) {
         session.data.marketingChannels.push('Physical Stores / Pop-ups');
-      } else if (message.includes('4') || message.toLowerCase().includes('e-commerce') || message.toLowerCase().includes('website')) {
+      }
+      if (message.includes('4') || message.toLowerCase().includes('e-commerce')) {
         session.data.marketingChannels.push('E-commerce / Website');
-      } else if (message.includes('5') || message.toLowerCase().includes('other')) {
+      }
+      if (message.includes('5') || message.toLowerCase().includes('other')) {
         session.data.marketingChannels.push('Other');
+      }
+      
+      // If no channels selected from buttons, try to parse text
+      if (session.data.marketingChannels.length === 0) {
+        const text = message.toLowerCase();
+        if (text.includes('social') || text.includes('media')) {
+          session.data.marketingChannels.push('Social Media (Facebook, Instagram, TikTok)');
+        }
+        if (text.includes('whatsapp') || text.includes('message')) {
+          session.data.marketingChannels.push('WhatsApp / Messaging Apps');
+        }
+        if (text.includes('physical') || text.includes('store')) {
+          session.data.marketingChannels.push('Physical Stores / Pop-ups');
+        }
+        if (text.includes('e-commerce') || text.includes('website')) {
+          session.data.marketingChannels.push('E-commerce / Website');
+        }
+        if (text.includes('other')) {
+          session.data.marketingChannels.push('Other');
+        }
       }
       
       if (session.data.marketingChannels.length === 0) {
         await whatsappService.sendTextMessage(phoneNumber,
-          '❌ Please select a valid marketing channel. Tap one of the buttons above.');
+          '❌ Please select at least one marketing channel.\n\nYou can type:\n1. Social Media\n2. WhatsApp\n3. Physical Stores\n4. E-commerce\n5. Other');
         return;
       }
       
-      console.log('✅ Marketing channels selected:', session.data.marketingChannels);
-      
-      // Move to Section 5 - Funding
+      // Move to Section 5
       await this.startSection5(phoneNumber, session);
     }
 
@@ -458,25 +473,22 @@ Select your main marketing channels (tap one button):
     session.currentSection = 'section5_funding';
     session.currentField = 'fundingType';
     
-    await whatsappService.sendButtons(phoneNumber,
-      `💰 *Section 5: Funding Information*
+    await whatsappService.sendTextMessage(phoneNumber,
+      `💰 *Section 5: Funding Information*`);
 
-*Funding Type:*
-What type of funding are you seeking? (Tap one button)
-
-1. Microloan
-2. Term Loan
-3. Equity Financing
-4. Grant
-5. Other`,
-      [
-        { title: '1. Microloan' },
-        { title: '2. Term Loan' },
-        { title: '3. Equity' },
-        { title: '4. Grant' },
-        { title: '5. Other' }
-      ]
-    );
+    // Wait a moment then send buttons
+    setTimeout(async () => {
+      await whatsappService.sendButtons(phoneNumber,
+        `What type of funding are you seeking?`,
+        [
+          { title: '1. Microloan' },
+          { title: '2. Term Loan' },
+          { title: '3. Equity' },
+          { title: '4. Grant' },
+          { title: '5. Other' }
+        ]
+      );
+    }, 1000);
   }
 
   async handleSection5(phoneNumber, message, session) {
@@ -485,28 +497,27 @@ What type of funding are you seeking? (Tap one button)
     if (field === 'fundingType') {
       if (!session.data.fundingType) session.data.fundingType = [];
       
-      // Clear previous selections and add the new one
-      session.data.fundingType = [];
-      
       if (message.includes('1') || message.toLowerCase().includes('microloan')) {
         session.data.fundingType.push('Microloan');
-      } else if (message.includes('2') || message.toLowerCase().includes('term loan')) {
+      }
+      if (message.includes('2') || message.toLowerCase().includes('term loan')) {
         session.data.fundingType.push('Term Loan');
-      } else if (message.includes('3') || message.toLowerCase().includes('equity')) {
+      }
+      if (message.includes('3') || message.toLowerCase().includes('equity')) {
         session.data.fundingType.push('Equity Financing');
-      } else if (message.includes('4') || message.toLowerCase().includes('grant')) {
+      }
+      if (message.includes('4') || message.toLowerCase().includes('grant')) {
         session.data.fundingType.push('Grant');
-      } else if (message.includes('5') || message.toLowerCase().includes('other')) {
+      }
+      if (message.includes('5') || message.toLowerCase().includes('other')) {
         session.data.fundingType.push('Other');
       }
       
       if (session.data.fundingType.length === 0) {
         await whatsappService.sendTextMessage(phoneNumber,
-          '❌ Please select a valid funding type. Tap one of the buttons above.');
+          '❌ Please select at least one funding type.\n\nYou can type:\n1. Microloan\n2. Term Loan\n3. Equity Financing\n4. Grant\n5. Other');
         return;
       }
-      
-      console.log('✅ Funding type selected:', session.data.fundingType);
       
       // FORM COMPLETE - Send to Airtable!
       await this.completeForm(phoneNumber, session);
@@ -518,12 +529,7 @@ What type of funding are you seeking? (Tap one button)
   async completeForm(phoneNumber, session) {
     try {
       console.log('🎯 Form completed, sending to Airtable...');
-      console.log('Collected data:', {
-        name: session.data.fullName,
-        business: session.data.businessName,
-        marketing: session.data.marketingChannels,
-        funding: session.data.fundingType
-      });
+      console.log('Data to send:', session.data);
       
       // Send data to Airtable
       const recordId = await airtableService.createBusinessPlan(session.data);
