@@ -1,4 +1,4 @@
-// form-flow.js - FIXED VERSION
+// form-flow.js - COMPLETE FIXED VERSION
 const whatsappService = require('./whatsapp');
 const airtableService = require('./airtable');
 
@@ -44,6 +44,12 @@ class FormFlow {
 
     if (session.currentSection === 'paused') {
       await this.startForm(phoneNumber);
+      return;
+    }
+    
+    // Handle confirmation separately
+    if (session.currentField === 'confirmation') {
+      await this.handleConfirmation(phoneNumber, message, session);
       return;
     }
     
@@ -263,7 +269,7 @@ Let's start with Section 1: Personal Information
       
       if (session.data.ownership.length === 0) {
         await whatsappService.sendTextMessage(phoneNumber,
-          '❌ You must indicate women ownership or leadership. Please select at least one option.\n\nYou can type: 1, 2, or 3');
+          '❌ You must indicate women ownership or leadership. Please select at least one option.');
         return;
       }
       
@@ -395,31 +401,15 @@ If you know your main competitors, please list them here.\nIf not, type 'Skip':`
       if (message.toLowerCase() !== 'skip') {
         session.data.competitors = message;
       }
-      session.currentField = 'marketingChannels';
       
-      // FIXED: Send marketing channels as simple text first, then buttons
-      await whatsappService.sendTextMessage(phoneNumber,
-        `📢 *Marketing Channels:*
-We'll now ask about your marketing channels. You'll see interactive buttons shortly...`);
-
-      // Wait a moment then send buttons
-      setTimeout(async () => {
-        await whatsappService.sendButtons(phoneNumber,
-          `Select your main marketing channels:`,
-          [
-            { title: '1. Social Media' },
-            { title: '2. WhatsApp' },
-            { title: '3. Physical Stores' },
-            { title: '4. E-commerce' },
-            { title: '5. Other' }
-          ]
-        );
-      }, 1000);
+      // PROPERLY transition to marketing channels
+      session.currentField = 'marketingChannels';
+      await this.showMarketingChannels(phoneNumber, session);
     
     } else if (field === 'marketingChannels') {
       if (!session.data.marketingChannels) session.data.marketingChannels = [];
       
-      // Handle both button responses and text numbers
+      // Handle the response
       if (message.includes('1') || message.toLowerCase().includes('social')) {
         session.data.marketingChannels.push('Social Media (Facebook, Instagram, TikTok)');
       }
@@ -436,37 +426,53 @@ We'll now ask about your marketing channels. You'll see interactive buttons shor
         session.data.marketingChannels.push('Other');
       }
       
-      // If no channels selected from buttons, try to parse text
-      if (session.data.marketingChannels.length === 0) {
-        const text = message.toLowerCase();
-        if (text.includes('social') || text.includes('media')) {
-          session.data.marketingChannels.push('Social Media (Facebook, Instagram, TikTok)');
-        }
-        if (text.includes('whatsapp') || text.includes('message')) {
-          session.data.marketingChannels.push('WhatsApp / Messaging Apps');
-        }
-        if (text.includes('physical') || text.includes('store')) {
-          session.data.marketingChannels.push('Physical Stores / Pop-ups');
-        }
-        if (text.includes('e-commerce') || text.includes('website')) {
-          session.data.marketingChannels.push('E-commerce / Website');
-        }
-        if (text.includes('other')) {
-          session.data.marketingChannels.push('Other');
-        }
-      }
-      
       if (session.data.marketingChannels.length === 0) {
         await whatsappService.sendTextMessage(phoneNumber,
-          '❌ Please select at least one marketing channel.\n\nYou can type:\n1. Social Media\n2. WhatsApp\n3. Physical Stores\n4. E-commerce\n5. Other');
+          '❌ Please select at least one marketing channel. Tap one of the buttons above or type the number (1-5).');
         return;
       }
       
-      // Move to Section 5
+      console.log('✅ Marketing channels selected:', session.data.marketingChannels);
+      
+      // Move to funding section
       await this.startSection5(phoneNumber, session);
     }
 
     this.updateSession(phoneNumber, session);
+  }
+
+  // NEW: Separate function to show marketing channels
+  async showMarketingChannels(phoneNumber, session) {
+    await whatsappService.sendTextMessage(phoneNumber,
+      `📢 *Marketing Channels:*
+How do you reach your customers? Select your main marketing channels:`);
+
+    // Send buttons after a short delay
+    setTimeout(async () => {
+      try {
+        await whatsappService.sendButtons(phoneNumber,
+          `Choose your marketing channels:`,
+          [
+            { title: '1. Social Media' },
+            { title: '2. WhatsApp' },
+            { title: '3. Physical Stores' },
+            { title: '4. E-commerce' },
+            { title: '5. Other' }
+          ]
+        );
+      } catch (error) {
+        // Fallback to text if buttons fail
+        await whatsappService.sendTextMessage(phoneNumber,
+          `Please type the number for your marketing channels:
+1. Social Media (Facebook, Instagram, TikTok)
+2. WhatsApp / Messaging Apps  
+3. Physical Stores / Pop-ups
+4. E-commerce / Website
+5. Other
+
+Type the numbers (e.g., "1 3" for multiple):`);
+      }
+    }, 1000);
   }
 
   async startSection5(phoneNumber, session) {
@@ -476,18 +482,31 @@ We'll now ask about your marketing channels. You'll see interactive buttons shor
     await whatsappService.sendTextMessage(phoneNumber,
       `💰 *Section 5: Funding Information*`);
 
-    // Wait a moment then send buttons
+    // Send funding options
     setTimeout(async () => {
-      await whatsappService.sendButtons(phoneNumber,
-        `What type of funding are you seeking?`,
-        [
-          { title: '1. Microloan' },
-          { title: '2. Term Loan' },
-          { title: '3. Equity' },
-          { title: '4. Grant' },
-          { title: '5. Other' }
-        ]
-      );
+      try {
+        await whatsappService.sendButtons(phoneNumber,
+          `What type of funding are you seeking?`,
+          [
+            { title: '1. Microloan' },
+            { title: '2. Term Loan' },
+            { title: '3. Equity' },
+            { title: '4. Grant' },
+            { title: '5. Other' }
+          ]
+        );
+      } catch (error) {
+        // Fallback to text
+        await whatsappService.sendTextMessage(phoneNumber,
+          `What type of funding are you seeking?
+1. Microloan
+2. Term Loan  
+3. Equity Financing
+4. Grant
+5. Other
+
+Type the numbers (e.g., "1 4" for multiple):`);
+      }
     }, 1000);
   }
 
@@ -497,6 +516,7 @@ We'll now ask about your marketing channels. You'll see interactive buttons shor
     if (field === 'fundingType') {
       if (!session.data.fundingType) session.data.fundingType = [];
       
+      // Handle funding type selection
       if (message.includes('1') || message.toLowerCase().includes('microloan')) {
         session.data.fundingType.push('Microloan');
       }
@@ -515,15 +535,71 @@ We'll now ask about your marketing channels. You'll see interactive buttons shor
       
       if (session.data.fundingType.length === 0) {
         await whatsappService.sendTextMessage(phoneNumber,
-          '❌ Please select at least one funding type.\n\nYou can type:\n1. Microloan\n2. Term Loan\n3. Equity Financing\n4. Grant\n5. Other');
+          '❌ Please select at least one funding type. Tap one of the buttons above or type the number (1-5).');
         return;
       }
       
-      // FORM COMPLETE - Send to Airtable!
-      await this.completeForm(phoneNumber, session);
+      console.log('✅ Funding types selected:', session.data.fundingType);
+      
+      // SHOW SUMMARY before submitting
+      await this.showSummaryBeforeSubmission(phoneNumber, session);
     }
 
     this.updateSession(phoneNumber, session);
+  }
+
+  // NEW: Show summary before submission
+  async showSummaryBeforeSubmission(phoneNumber, session) {
+    const summary = `
+📊 *YOUR BUSINESS PLAN SUMMARY*
+
+👤 *Personal Information:*
+• Name: ${session.data.fullName}
+• Phone: ${session.data.cellphone}
+• Email: ${session.data.email}
+• Business: ${session.data.businessName}
+
+🏢 *Business Details:*
+• Type: ${session.data.businessType}
+• Stage: ${session.data.businessStage} 
+• Employees: ${session.data.employees}
+• Ownership: ${session.data.ownership.join(', ')}
+
+🏭 *Business Operations:*
+• Sector: ${session.data.primarySector}
+• Subsector: ${session.data.subsector}
+
+📢 *Marketing:*
+• Channels: ${session.data.marketingChannels.join(', ')}
+
+💰 *Funding:*
+• Types: ${session.data.fundingType.join(', ')}
+
+---
+✅ *Ready to submit?* Type "YES" to submit your business plan.
+🔄 Type "NO" to make changes.
+    `;
+
+    await whatsappService.sendTextMessage(phoneNumber, summary);
+    
+    // Change field to wait for confirmation
+    session.currentField = 'confirmation';
+  }
+
+  // NEW: Handle confirmation
+  async handleConfirmation(phoneNumber, message, session) {
+    if (message.toLowerCase() === 'yes') {
+      await whatsappService.sendTextMessage(phoneNumber, '🚀 Submitting your business plan...');
+      await this.completeForm(phoneNumber, session);
+    } else if (message.toLowerCase() === 'no') {
+      await whatsappService.sendTextMessage(phoneNumber,
+        '🔄 Let me know which section you want to change, or type "RESTART" to start over.');
+      // Reset to allow editing (you could implement section-specific editing here)
+      session.currentField = 'editing';
+    } else {
+      await whatsappService.sendTextMessage(phoneNumber,
+        '❌ Please type "YES" to submit your business plan or "NO" to make changes.');
+    }
   }
 
   async completeForm(phoneNumber, session) {
