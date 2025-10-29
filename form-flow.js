@@ -1,4 +1,4 @@
-// form-flow.js - FIXED WITH PROPER RESTART FUNCTIONALITY
+// form-flow.js - COMPLETE FIXED VERSION WITH PROPER FLOW CONTROL
 const whatsappService = require('./whatsapp');
 const airtableService = require('./airtable');
 
@@ -13,8 +13,7 @@ class FormFlow {
         currentSection: 'welcome',
         data: {},
         currentField: null,
-        recordId: null,
-        lastActivity: new Date()
+        recordId: null
       });
     }
     return this.userSessions.get(phoneNumber);
@@ -23,23 +22,8 @@ class FormFlow {
   updateSession(phoneNumber, updates) {
     const session = this.getSession(phoneNumber);
     Object.assign(session, updates);
-    session.lastActivity = new Date();
     this.userSessions.set(phoneNumber, session);
     return session;
-  }
-
-  // NEW: Proper restart function that completely clears the session
-  async restartForm(phoneNumber) {
-    console.log('🔄 RESTARTING form for:', phoneNumber);
-    
-    // Completely delete the session
-    this.userSessions.delete(phoneNumber);
-    
-    // Wait a moment to ensure session is cleared
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Start fresh
-    await this.startForm(phoneNumber);
   }
 
   async handleMessage(phoneNumber, message) {
@@ -48,21 +32,20 @@ class FormFlow {
     console.log(`📱 Handling message from ${phoneNumber}: "${message}"`);
     console.log(`   Current section: ${session.currentSection}, field: ${session.currentField}`);
     
-    // Handle RESTART command - should work from ANY state
-    if (message.toLowerCase() === 'restart') {
-      await this.restartForm(phoneNumber);
-      return;
-    }
-    
-    // Handle STOP command
+    // Handle special commands
     if (message.toLowerCase() === 'stop') {
       await whatsappService.sendTextMessage(phoneNumber, 
         '🛑 Form paused. You can continue anytime by sending any message.');
       this.updateSession(phoneNumber, { currentSection: 'paused' });
       return;
     }
+    
+    if (message.toLowerCase() === 'restart') {
+      this.userSessions.delete(phoneNumber); // Clear session completely
+      await this.startForm(phoneNumber);
+      return;
+    }
 
-    // Handle paused state
     if (session.currentSection === 'paused') {
       await this.startForm(phoneNumber);
       return;
@@ -71,12 +54,6 @@ class FormFlow {
     // Handle confirmation separately
     if (session.currentField === 'confirmation') {
       await this.handleConfirmation(phoneNumber, message, session);
-      return;
-    }
-
-    // Handle editing state after "NO" to summary
-    if (session.currentField === 'editing') {
-      await this.handleEditing(phoneNumber, message, session);
       return;
     }
     
@@ -106,6 +83,7 @@ class FormFlow {
         break;
       
       default:
+        console.log(`❌ Unknown section: ${session.currentSection}, restarting...`);
         await this.startForm(phoneNumber);
     }
   }
@@ -202,6 +180,8 @@ Let's start with Section 1: Personal Information
   async startSection2(phoneNumber, session) {
     session.currentSection = 'section2_business';
     session.currentField = 'businessName';
+    
+    console.log('🚀 Moving to Section 2: Business Details');
     
     await whatsappService.sendTextMessage(phoneNumber,
       `🏢 *Section 2: Business Details*
@@ -338,6 +318,8 @@ Let's start with Section 1: Personal Information
     session.currentSection = 'section3_sector';
     session.currentField = 'primarySector';
     
+    console.log('🚀 Moving to Section 3: Business Sector');
+    
     const sectors = [
       { title: 'Agriculture & Agro-Processing' },
       { title: 'Technology' },
@@ -386,7 +368,7 @@ Let's start with Section 1: Personal Information
       }
       session.data.businessDescription = message;
       
-      // Move to Section 4
+      // Move to Section 4 - THIS WAS MISSING!
       await this.startSection4(phoneNumber, session);
     }
 
@@ -396,6 +378,8 @@ Let's start with Section 1: Personal Information
   async startSection4(phoneNumber, session) {
     session.currentSection = 'section4_market';
     session.currentField = 'targetMarket';
+    
+    console.log('🚀 Moving to Section 4: Market & Customers');
     
     await whatsappService.sendTextMessage(phoneNumber,
       `🎯 *Section 4: Market & Customers*
@@ -507,6 +491,8 @@ Type the numbers (e.g., "1 3" for multiple):`
   async startSection5(phoneNumber, session) {
     session.currentSection = 'section5_funding';
     session.currentField = 'fundingType';
+    
+    console.log('🚀 Moving to Section 5: Funding Information');
     
     await whatsappService.sendTextMessage(phoneNumber,
       `💰 *Section 5: Funding Information*`);
@@ -636,21 +622,11 @@ Type the numbers (e.g., "1 4" for multiple):`
       await this.completeForm(phoneNumber, session);
     } else if (message.toLowerCase() === 'no') {
       await whatsappService.sendTextMessage(phoneNumber,
-        '🔄 Let me know which section you want to change, or type "RESTART" to start over completely.');
+        '🔄 Let me know which section you want to change, or type "RESTART" to start over.');
       session.currentField = 'editing';
     } else {
       await whatsappService.sendTextMessage(phoneNumber,
         '❌ Please type "YES" to submit your business plan or "NO" to make changes.');
-    }
-  }
-
-  // NEW: Handle editing state
-  async handleEditing(phoneNumber, message, session) {
-    if (message.toLowerCase() === 'restart') {
-      await this.restartForm(phoneNumber);
-    } else {
-      await whatsappService.sendTextMessage(phoneNumber,
-        '🔄 Type "RESTART" to start a completely new form, or continue with your changes.');
     }
   }
 
@@ -690,20 +666,16 @@ Have a great day! 🌟`;
       let errorMessage = '❌ Sorry, there was an error submitting your form. ';
       
       if (error.message.includes('NOT_FOUND')) {
-        errorMessage += 'The database connection failed. ';
+        errorMessage += 'The database connection failed. Please contact support.';
       } else if (error.message.includes('AUTHENTICATION_REQUIRED') || error.message.includes('401')) {
-        errorMessage += 'Authentication failed. ';
+        errorMessage += 'Authentication failed. Please contact support.';
       } else if (error.message.includes('VALIDATION') || error.message.includes('422')) {
-        errorMessage += 'There was a data validation error. ';
+        errorMessage += 'There was a data validation error. Please try again with different information.';
+      } else {
+        errorMessage += 'Please try again later or contact support.';
       }
       
-      errorMessage += 'Please type "RESTART" to try again or contact support.';
-      
       await whatsappService.sendTextMessage(phoneNumber, errorMessage);
-      
-      // Reset to editing state so RESTART will work
-      session.currentField = 'editing';
-      this.updateSession(phoneNumber, session);
     }
   }
 }
