@@ -1,4 +1,4 @@
-// form-flow.js - COMPLETE FIXED VERSION WITH PROPER FLOW
+// form-flow.js - FIXED WITH PROPER RESTART FUNCTIONALITY
 const whatsappService = require('./whatsapp');
 const airtableService = require('./airtable');
 
@@ -13,7 +13,8 @@ class FormFlow {
         currentSection: 'welcome',
         data: {},
         currentField: null,
-        recordId: null
+        recordId: null,
+        lastActivity: new Date()
       });
     }
     return this.userSessions.get(phoneNumber);
@@ -22,8 +23,23 @@ class FormFlow {
   updateSession(phoneNumber, updates) {
     const session = this.getSession(phoneNumber);
     Object.assign(session, updates);
+    session.lastActivity = new Date();
     this.userSessions.set(phoneNumber, session);
     return session;
+  }
+
+  // NEW: Proper restart function that completely clears the session
+  async restartForm(phoneNumber) {
+    console.log('🔄 RESTARTING form for:', phoneNumber);
+    
+    // Completely delete the session
+    this.userSessions.delete(phoneNumber);
+    
+    // Wait a moment to ensure session is cleared
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Start fresh
+    await this.startForm(phoneNumber);
   }
 
   async handleMessage(phoneNumber, message) {
@@ -32,20 +48,21 @@ class FormFlow {
     console.log(`📱 Handling message from ${phoneNumber}: "${message}"`);
     console.log(`   Current section: ${session.currentSection}, field: ${session.currentField}`);
     
-    // Handle special commands
+    // Handle RESTART command - should work from ANY state
+    if (message.toLowerCase() === 'restart') {
+      await this.restartForm(phoneNumber);
+      return;
+    }
+    
+    // Handle STOP command
     if (message.toLowerCase() === 'stop') {
       await whatsappService.sendTextMessage(phoneNumber, 
         '🛑 Form paused. You can continue anytime by sending any message.');
       this.updateSession(phoneNumber, { currentSection: 'paused' });
       return;
     }
-    
-    if (message.toLowerCase() === 'restart') {
-      this.userSessions.delete(phoneNumber); // Clear session completely
-      await this.startForm(phoneNumber);
-      return;
-    }
 
+    // Handle paused state
     if (session.currentSection === 'paused') {
       await this.startForm(phoneNumber);
       return;
@@ -54,6 +71,12 @@ class FormFlow {
     // Handle confirmation separately
     if (session.currentField === 'confirmation') {
       await this.handleConfirmation(phoneNumber, message, session);
+      return;
+    }
+
+    // Handle editing state after "NO" to summary
+    if (session.currentField === 'editing') {
+      await this.handleEditing(phoneNumber, message, session);
       return;
     }
     
@@ -613,7 +636,7 @@ Type the numbers (e.g., "1 4" for multiple):`
       await this.completeForm(phoneNumber, session);
     } else if (message.toLowerCase() === 'no') {
       await whatsappService.sendTextMessage(phoneNumber,
-        '🔄 Let me know which section you want to change, or type "RESTART" to start over.');
+        '🔄 Let me know which section you want to change, or type "RESTART" to start over completely.');
       session.currentField = 'editing';
     } else {
       await whatsappService.sendTextMessage(phoneNumber,
@@ -621,10 +644,20 @@ Type the numbers (e.g., "1 4" for multiple):`
     }
   }
 
+  // NEW: Handle editing state
+  async handleEditing(phoneNumber, message, session) {
+    if (message.toLowerCase() === 'restart') {
+      await this.restartForm(phoneNumber);
+    } else {
+      await whatsappService.sendTextMessage(phoneNumber,
+        '🔄 Type "RESTART" to start a completely new form, or continue with your changes.');
+    }
+  }
+
   async completeForm(phoneNumber, session) {
     try {
       console.log('🎯 Form completed, sending to Airtable...');
-      console.log('Data to send:', session.data);
+      console.log('📦 Data to send:', JSON.stringify(session.data, null, 2));
       
       // Send data to Airtable
       const recordId = await airtableService.createBusinessPlan(session.data);
@@ -652,9 +685,25 @@ Have a great day! 🌟`;
       console.log('✅ Form data successfully pushed to Airtable!');
       
     } catch (error) {
-      console.error('❌ Error submitting form to Airtable:', error);
-      await whatsappService.sendTextMessage(phoneNumber,
-        '❌ Sorry, there was an error submitting your form. Please try again later or contact support.');
+      console.error('❌ ERROR submitting form to Airtable:', error);
+      
+      let errorMessage = '❌ Sorry, there was an error submitting your form. ';
+      
+      if (error.message.includes('NOT_FOUND')) {
+        errorMessage += 'The database connection failed. ';
+      } else if (error.message.includes('AUTHENTICATION_REQUIRED') || error.message.includes('401')) {
+        errorMessage += 'Authentication failed. ';
+      } else if (error.message.includes('VALIDATION') || error.message.includes('422')) {
+        errorMessage += 'There was a data validation error. ';
+      }
+      
+      errorMessage += 'Please type "RESTART" to try again or contact support.';
+      
+      await whatsappService.sendTextMessage(phoneNumber, errorMessage);
+      
+      // Reset to editing state so RESTART will work
+      session.currentField = 'editing';
+      this.updateSession(phoneNumber, session);
     }
   }
 }
