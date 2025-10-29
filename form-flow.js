@@ -1,4 +1,4 @@
-// form-flow.js - UPDATED FOR YOUR AIRTABLE FIELDS
+// form-flow.js - COMPLETE FIXED VERSION
 const whatsappService = require('./whatsapp');
 const airtableService = require('./airtable');
 
@@ -389,20 +389,25 @@ Describe your unique advantages:`);
       session.currentField = 'competitors';
       await whatsappService.sendTextMessage(phoneNumber,
         `🏆 *Key Competitors:* (Optional)
-If you know your main competitors, please list them here.\nIf not, type 'Skip':`);
+If you know your main competitors, please list them here.\nIf not, type 'Skip' or 'None':`);
     
     } else if (field === 'competitors') {
-      if (message.toLowerCase() !== 'skip') {
+      // Handle competitors response properly
+      if (message.toLowerCase() === 'skip' || message.toLowerCase() === 'none') {
+        session.data.competitors = '';
+      } else {
         session.data.competitors = message;
       }
+      
+      // Move to marketing channels - send the buttons
       session.currentField = 'marketingChannels';
       
       await whatsappService.sendButtons(phoneNumber,
         `📢 *Marketing Channels:*
-Select your main marketing channels:
+Select your main marketing channels (tap one button):
 
 1. Social Media (Facebook, Instagram, TikTok)
-2. WhatsApp / Messaging Apps
+2. WhatsApp / Messaging Apps  
 3. Physical Stores / Pop-ups
 4. E-commerce / Website
 5. Other`,
@@ -416,31 +421,33 @@ Select your main marketing channels:
       );
     
     } else if (field === 'marketingChannels') {
+      // Handle marketing channels selection
       if (!session.data.marketingChannels) session.data.marketingChannels = [];
+      
+      // Clear previous selections and add the new one
+      session.data.marketingChannels = [];
       
       if (message.includes('1') || message.toLowerCase().includes('social')) {
         session.data.marketingChannels.push('Social Media (Facebook, Instagram, TikTok)');
-      }
-      if (message.includes('2') || message.toLowerCase().includes('whatsapp')) {
+      } else if (message.includes('2') || message.toLowerCase().includes('whatsapp')) {
         session.data.marketingChannels.push('WhatsApp / Messaging Apps');
-      }
-      if (message.includes('3') || message.toLowerCase().includes('physical')) {
+      } else if (message.includes('3') || message.toLowerCase().includes('physical')) {
         session.data.marketingChannels.push('Physical Stores / Pop-ups');
-      }
-      if (message.includes('4') || message.toLowerCase().includes('e-commerce')) {
+      } else if (message.includes('4') || message.toLowerCase().includes('e-commerce') || message.toLowerCase().includes('website')) {
         session.data.marketingChannels.push('E-commerce / Website');
-      }
-      if (message.includes('5') || message.toLowerCase().includes('other')) {
+      } else if (message.includes('5') || message.toLowerCase().includes('other')) {
         session.data.marketingChannels.push('Other');
       }
       
       if (session.data.marketingChannels.length === 0) {
         await whatsappService.sendTextMessage(phoneNumber,
-          '❌ Please select at least one marketing channel.');
+          '❌ Please select a valid marketing channel. Tap one of the buttons above.');
         return;
       }
       
-      // Move to Section 5
+      console.log('✅ Marketing channels selected:', session.data.marketingChannels);
+      
+      // Move to Section 5 - Funding
       await this.startSection5(phoneNumber, session);
     }
 
@@ -455,7 +462,7 @@ Select your main marketing channels:
       `💰 *Section 5: Funding Information*
 
 *Funding Type:*
-What type of funding are you seeking?
+What type of funding are you seeking? (Tap one button)
 
 1. Microloan
 2. Term Loan
@@ -478,27 +485,28 @@ What type of funding are you seeking?
     if (field === 'fundingType') {
       if (!session.data.fundingType) session.data.fundingType = [];
       
+      // Clear previous selections and add the new one
+      session.data.fundingType = [];
+      
       if (message.includes('1') || message.toLowerCase().includes('microloan')) {
         session.data.fundingType.push('Microloan');
-      }
-      if (message.includes('2') || message.toLowerCase().includes('term loan')) {
+      } else if (message.includes('2') || message.toLowerCase().includes('term loan')) {
         session.data.fundingType.push('Term Loan');
-      }
-      if (message.includes('3') || message.toLowerCase().includes('equity')) {
+      } else if (message.includes('3') || message.toLowerCase().includes('equity')) {
         session.data.fundingType.push('Equity Financing');
-      }
-      if (message.includes('4') || message.toLowerCase().includes('grant')) {
+      } else if (message.includes('4') || message.toLowerCase().includes('grant')) {
         session.data.fundingType.push('Grant');
-      }
-      if (message.includes('5') || message.toLowerCase().includes('other')) {
+      } else if (message.includes('5') || message.toLowerCase().includes('other')) {
         session.data.fundingType.push('Other');
       }
       
       if (session.data.fundingType.length === 0) {
         await whatsappService.sendTextMessage(phoneNumber,
-          '❌ Please select at least one funding type.');
+          '❌ Please select a valid funding type. Tap one of the buttons above.');
         return;
       }
+      
+      console.log('✅ Funding type selected:', session.data.fundingType);
       
       // FORM COMPLETE - Send to Airtable!
       await this.completeForm(phoneNumber, session);
@@ -510,7 +518,12 @@ What type of funding are you seeking?
   async completeForm(phoneNumber, session) {
     try {
       console.log('🎯 Form completed, sending to Airtable...');
-      console.log('Data to send:', session.data);
+      console.log('Collected data:', {
+        name: session.data.fullName,
+        business: session.data.businessName,
+        marketing: session.data.marketingChannels,
+        funding: session.data.fundingType
+      });
       
       // Send data to Airtable
       const recordId = await airtableService.createBusinessPlan(session.data);
