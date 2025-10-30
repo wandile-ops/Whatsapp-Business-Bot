@@ -1,4 +1,4 @@
-// form-flow.js - COMPLETE FIXED VERSION WITH PROPER FLOW CONTROL
+// form-flow.js - CLEAN WORKING VERSION
 const whatsappService = require('./whatsapp');
 const airtableService = require('./airtable');
 
@@ -12,8 +12,7 @@ class FormFlow {
       this.userSessions.set(phoneNumber, {
         currentSection: 'welcome',
         data: {},
-        currentField: null,
-        recordId: null
+        currentField: null
       });
     }
     return this.userSessions.get(phoneNumber);
@@ -27,63 +26,48 @@ class FormFlow {
   }
 
   async handleMessage(phoneNumber, message) {
-    const session = this.getSession(phoneNumber);
-    
-    console.log(`📱 Handling message from ${phoneNumber}: "${message}"`);
-    console.log(`   Current section: ${session.currentSection}, field: ${session.currentField}`);
-    
-    // Handle special commands
+    // Handle special commands first
     if (message.toLowerCase() === 'stop') {
       await whatsappService.sendTextMessage(phoneNumber, 
-        '🛑 Form paused. You can continue anytime by sending any message.');
-      this.updateSession(phoneNumber, { currentSection: 'paused' });
+        '🛑 Form paused. Send any message to continue.');
       return;
     }
     
     if (message.toLowerCase() === 'restart') {
-      this.userSessions.delete(phoneNumber); // Clear session completely
+      this.userSessions.delete(phoneNumber);
       await this.startForm(phoneNumber);
       return;
     }
 
-    if (session.currentSection === 'paused') {
-      await this.startForm(phoneNumber);
-      return;
-    }
+    const session = this.getSession(phoneNumber);
     
     // Handle confirmation separately
     if (session.currentField === 'confirmation') {
       await this.handleConfirmation(phoneNumber, message, session);
       return;
     }
-    
+
+    // Route to appropriate section handler
     switch (session.currentSection) {
       case 'welcome':
         await this.startForm(phoneNumber);
         break;
-      
-      case 'section1_personal':
+      case 'section1':
         await this.handleSection1(phoneNumber, message, session);
         break;
-      
-      case 'section2_business':
+      case 'section2':
         await this.handleSection2(phoneNumber, message, session);
         break;
-      
-      case 'section3_sector':
+      case 'section3':
         await this.handleSection3(phoneNumber, message, session);
         break;
-      
-      case 'section4_market':
+      case 'section4':
         await this.handleSection4(phoneNumber, message, session);
         break;
-      
-      case 'section5_funding':
+      case 'section5':
         await this.handleSection5(phoneNumber, message, session);
         break;
-      
       default:
-        console.log(`❌ Unknown section: ${session.currentSection}, restarting...`);
         await this.startForm(phoneNumber);
     }
   }
@@ -91,86 +75,75 @@ class FormFlow {
   async startForm(phoneNumber) {
     const welcomeMessage = `🌟 *Welcome to the Business Plan Collection Form* 🌟
 
-I'll guide you through the process of submitting your business plan. This form has 5 sections and will take about 10-15 minutes to complete.
+I'll guide you through submitting your business plan. This has 5 sections.
 
 *Commands:*
-• Type *STOP* to pause
-• Type *RESTART* to start over
+• STOP - pause
+• RESTART - start over
 
-Let's start with Section 1: Personal Information
+*Section 1: Personal Information*
 
-*Please enter your Full Name:*`;
+Please enter your Full Name:`;
 
     await whatsappService.sendTextMessage(phoneNumber, welcomeMessage);
     this.updateSession(phoneNumber, { 
-      currentSection: 'section1_personal',
+      currentSection: 'section1',
       currentField: 'fullName',
-      data: { phoneNumber } // Store WhatsApp number
+      data: { phoneNumber }
     });
   }
 
   async handleSection1(phoneNumber, message, session) {
     const field = session.currentField;
-    console.log(`   Processing section1, field: ${field}, message: "${message}"`);
 
     if (field === 'fullName') {
-      if (!message.trim()) {
-        await whatsappService.sendTextMessage(phoneNumber, 
-          '❌ Please enter your full name:');
-        return;
-      }
       session.data.fullName = message;
       session.currentField = 'cellphone';
       await whatsappService.sendTextMessage(phoneNumber, 
-        '📱 *Cellphone Number:*\nPlease enter your cellphone number (South African format, e.g., 0712345678):');
+        '📱 *Cellphone Number:*\nEnter your SA number (e.g., 0712345678):');
     
     } else if (field === 'cellphone') {
-      // Basic validation for SA number
-      const phoneRegex = /^0[0-9]{9}$/;
-      if (!phoneRegex.test(message)) {
+      if (!/^0[0-9]{9}$/.test(message)) {
         await whatsappService.sendTextMessage(phoneNumber, 
-          '❌ Please enter a valid South African phone number (10 digits starting with 0).\nExample: 0712345678');
+          '❌ Please enter a valid 10-digit SA number starting with 0.\nExample: 0712345678');
         return;
       }
       session.data.cellphone = message;
       session.currentField = 'email';
       await whatsappService.sendTextMessage(phoneNumber, 
-        '📧 *Email Address:*\nPlease enter your email address:');
+        '📧 *Email Address:*\nEnter your email:');
     
     } else if (field === 'email') {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(message)) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(message)) {
         await whatsappService.sendTextMessage(phoneNumber, 
-          '❌ Please enter a valid email address.\nExample: name@example.com');
+          '❌ Please enter a valid email.\nExample: name@example.com');
         return;
       }
       session.data.email = message;
       session.currentField = 'dob';
       await whatsappService.sendTextMessage(phoneNumber, 
-        '🎂 *Date of Birth:*\nPlease enter your date of birth (YYYY-MM-DD):\n*Note: You must be at least 18 years old.*');
+        '🎂 *Date of Birth:*\nEnter your birth date (YYYY-MM-DD):\n*Must be 18+ years old*');
     
     } else if (field === 'dob') {
       const dob = new Date(message);
       const age = Math.floor((new Date() - dob) / (365.25 * 24 * 60 * 60 * 1000));
       if (isNaN(dob.getTime()) || age < 18) {
         await whatsappService.sendTextMessage(phoneNumber, 
-          '❌ You must be at least 18 years old. Please enter a valid date (YYYY-MM-DD):');
+          '❌ You must be 18+. Enter valid date (YYYY-MM-DD):');
         return;
       }
       session.data.dob = message;
       session.currentField = 'idNumber';
       await whatsappService.sendTextMessage(phoneNumber, 
-        '🆔 *ID Number:*\nPlease enter your South African ID number:');
+        '🆔 *ID Number:*\nEnter your SA ID number:');
     
     } else if (field === 'idNumber') {
       if (!message.trim()) {
         await whatsappService.sendTextMessage(phoneNumber, 
-          '❌ Please provide a valid ID number:');
+          '❌ Please enter your ID number:');
         return;
       }
       session.data.idNumber = message;
-      
-      // Move to Section 2
       await this.startSection2(phoneNumber, session);
     }
 
@@ -178,136 +151,169 @@ Let's start with Section 1: Personal Information
   }
 
   async startSection2(phoneNumber, session) {
-    session.currentSection = 'section2_business';
+    session.currentSection = 'section2';
     session.currentField = 'businessName';
-    
-    console.log('🚀 Moving to Section 2: Business Details');
     
     await whatsappService.sendTextMessage(phoneNumber,
       `🏢 *Section 2: Business Details*
 
-*Business Name:*\nPlease enter your business or project name:`);
+*Business Name:*\nEnter your business name:`);
   }
 
   async handleSection2(phoneNumber, message, session) {
     const field = session.currentField;
-    console.log(`   Processing section2, field: ${field}, message: "${message}"`);
 
     if (field === 'businessName') {
       if (!message.trim()) {
         await whatsappService.sendTextMessage(phoneNumber,
-          '❌ Please enter your business/project name:');
+          '❌ Please enter business name:');
         return;
       }
       session.data.businessName = message;
       session.currentField = 'businessRegNumber';
       await whatsappService.sendTextMessage(phoneNumber,
-        '📋 *Business Registration Number:*\nIf registered, enter your business registration number.\nIf not registered, type *N/A*:');
+        '📋 *Business Registration:*\nEnter registration number or type N/A:');
     
     } else if (field === 'businessRegNumber') {
       session.data.businessRegNumber = message;
       session.currentField = 'businessType';
       
-      const businessTypes = [
-        { title: 'Sole Proprietorship' },
-        { title: 'Partnership' },
-        { title: 'Private Company (Pty Ltd)' },
-        { title: 'Cooperative' },
-        { title: 'Non-Profit Organization' },
-        { title: 'Social Enterprise' },
-        { title: 'Other' }
-      ];
+      // Simple text options for business type
+      await whatsappService.sendTextMessage(phoneNumber,
+        `🏢 *Business Type:*
+Choose one:
+1. Sole Proprietorship
+2. Partnership
+3. Private Company (Pty Ltd)
+4. Cooperative
+5. Non-Profit Organization
+6. Social Enterprise
+7. Other
 
-      await this.sendListWithFallback(phoneNumber,
-        '*Business Type:*\nPlease select your business type:',
-        'Business Types',
-        businessTypes
-      );
+Type the number (1-7):`);
     
     } else if (field === 'businessType') {
-      session.data.businessType = message;
+      const types = {
+        '1': 'Sole Proprietorship',
+        '2': 'Partnership',
+        '3': 'Private Company (Pty Ltd)',
+        '4': 'Cooperative',
+        '5': 'Non-Profit Organization',
+        '6': 'Social Enterprise',
+        '7': 'Other'
+      };
+      
+      if (types[message]) {
+        session.data.businessType = types[message];
+      } else if (Object.values(types).includes(message)) {
+        session.data.businessType = message;
+      } else {
+        await whatsappService.sendTextMessage(phoneNumber,
+          '❌ Please type a number 1-7:');
+        return;
+      }
+      
       session.currentField = 'yearEstablished';
       await whatsappService.sendTextMessage(phoneNumber,
-        '📅 *Year Established:*\nPlease enter the year your business was established (YYYY):');
+        '📅 *Year Established:*\nEnter year (YYYY):');
     
     } else if (field === 'yearEstablished') {
       const year = parseInt(message);
       const currentYear = new Date().getFullYear();
       if (isNaN(year) || year < 1900 || year > currentYear) {
         await whatsappService.sendTextMessage(phoneNumber,
-          `❌ Please enter a valid year between 1900 and ${currentYear}:`);
+          `❌ Enter valid year (1900-${currentYear}):`);
         return;
       }
       session.data.yearEstablished = year;
       session.currentField = 'businessStage';
       
-      const businessStages = [
-        { title: 'Idea / Concept' },
-        { title: 'Startup (0–3 years)' },
-        { title: 'Small & Medium Enterprise (SME)' },
-        { title: 'Scaling / Growth Stage' },
-        { title: 'Other' }
-      ];
+      await whatsappService.sendTextMessage(phoneNumber,
+        `🚀 *Business Stage:*
+Choose one:
+1. Idea / Concept
+2. Startup (0–3 years)
+3. Small & Medium Enterprise (SME)
+4. Scaling / Growth Stage
+5. Other
 
-      await this.sendListWithFallback(phoneNumber,
-        '*Business Stage:*\nSelect the current stage of your business:',
-        'Business Stages',
-        businessStages
-      );
+Type the number (1-5):`);
     
     } else if (field === 'businessStage') {
-      session.data.businessStage = message;
+      const stages = {
+        '1': 'Idea / Concept',
+        '2': 'Startup (0–3 years)',
+        '3': 'Small & Medium Enterprise (SME)',
+        '4': 'Scaling / Growth Stage',
+        '5': 'Other'
+      };
+      
+      if (stages[message]) {
+        session.data.businessStage = stages[message];
+      } else if (Object.values(stages).includes(message)) {
+        session.data.businessStage = message;
+      } else {
+        await whatsappService.sendTextMessage(phoneNumber,
+          '❌ Please type a number 1-5:');
+        return;
+      }
+      
       session.currentField = 'ownership';
       
-      await this.sendButtonsWithFallback(phoneNumber,
-        '*Ownership & Leadership:*\nSelect all that apply to your business:',
-        [
-          { title: '1. Women Majority' },
-          { title: '2. Women-Led' },
-          { title: '3. Other' }
-        ],
-        `1. Women Majority-Owned (80%+)\n2. Women-Led\n3. Other\n\nType the numbers (e.g., "1 2" for multiple):`
-      );
+      await whatsappService.sendTextMessage(phoneNumber,
+        `👩‍💼 *Ownership & Leadership:*
+Select all that apply:
+1. Women Majority-Owned (80%+)
+2. Women-Led
+3. Other
+
+Type numbers (e.g., "1 2" for multiple):`);
     
     } else if (field === 'ownership') {
       if (!session.data.ownership) session.data.ownership = [];
       
-      if (message.includes('1') || message.toLowerCase().includes('women majority')) {
-        session.data.ownership.push('Women Majority-Owned (80%+)');
-      }
-      if (message.includes('2') || message.toLowerCase().includes('women-led')) {
-        session.data.ownership.push('Women-Led');
-      }
-      if (message.includes('3') || message.toLowerCase().includes('other')) {
-        session.data.ownership.push('Other');
-      }
+      if (message.includes('1')) session.data.ownership.push('Women Majority-Owned (80%+)');
+      if (message.includes('2')) session.data.ownership.push('Women-Led');
+      if (message.includes('3')) session.data.ownership.push('Other');
       
       if (session.data.ownership.length === 0) {
         await whatsappService.sendTextMessage(phoneNumber,
-          '❌ You must indicate women ownership or leadership. Please select at least one option.');
+          '❌ Please select at least one. Type numbers (e.g., "1 2"):');
         return;
       }
       
       session.currentField = 'employees';
       
-      const employeeRanges = [
-        { title: '0–5 employees' },
-        { title: '6–20 employees' },
-        { title: '21–50 employees' },
-        { title: '51–100 employees' },
-        { title: '100+ employees' }
-      ];
+      await whatsappService.sendTextMessage(phoneNumber,
+        `👥 *Number of Employees:*
+Choose one:
+1. 0–5
+2. 6–20
+3. 21–50
+4. 51–100
+5. 100+
 
-      await this.sendListWithFallback(phoneNumber,
-        '*Number of Employees:*\nSelect the number of employees in your business:',
-        'Employee Count',
-        employeeRanges
-      );
+Type the number (1-5):`);
     
     } else if (field === 'employees') {
-      session.data.employees = message;
+      const employees = {
+        '1': '0–5',
+        '2': '6–20',
+        '3': '21–50',
+        '4': '51–100',
+        '5': '100+'
+      };
       
-      // Move to Section 3
+      if (employees[message]) {
+        session.data.employees = employees[message];
+      } else if (Object.values(employees).includes(message)) {
+        session.data.employees = message;
+      } else {
+        await whatsappService.sendTextMessage(phoneNumber,
+          '❌ Please type a number 1-5:');
+        return;
+      }
+      
       await this.startSection3(phoneNumber, session);
     }
 
@@ -315,60 +321,91 @@ Let's start with Section 1: Personal Information
   }
 
   async startSection3(phoneNumber, session) {
-    session.currentSection = 'section3_sector';
+    session.currentSection = 'section3';
     session.currentField = 'primarySector';
     
-    console.log('🚀 Moving to Section 3: Business Sector');
-    
-    const sectors = [
-      { title: 'Agriculture & Agro-Processing' },
-      { title: 'Technology' },
-      { title: 'Retail & Wholesale' },
-      { title: 'Healthcare & Wellness' },
-      { title: 'Education & Training' },
-      { title: 'Tourism & Hospitality' },
-      { title: 'Energy & Renewable Energy' },
-      { title: 'Construction & Engineering' },
-      { title: 'Other' }
-    ];
+    await whatsappService.sendTextMessage(phoneNumber,
+      `🏭 *Section 3: Business Sector*
 
-    await this.sendListWithFallback(phoneNumber,
-      '🏭 *Section 3: Business Sector*\n\n*Primary Sector:*\nSelect your primary business sector:',
-      'Business Sectors',
-      sectors
-    );
+*Primary Sector:*
+Choose one:
+1. Agriculture & Agro-Processing
+2. Technology
+3. Retail & Wholesale
+4. Healthcare & Wellness
+5. Education & Training
+6. Tourism & Hospitality
+7. Energy & Renewable Energy
+8. Construction & Engineering
+9. Other
+
+Type the number (1-9):`);
   }
 
   async handleSection3(phoneNumber, message, session) {
     const field = session.currentField;
-    console.log(`   Processing section3, field: ${field}, message: "${message}"`);
 
     if (field === 'primarySector') {
-      session.data.primarySector = message;
+      const sectors = {
+        '1': 'Agriculture & Agro-Processing',
+        '2': 'Technology',
+        '3': 'Retail & Wholesale',
+        '4': 'Healthcare & Wellness',
+        '5': 'Education & Training',
+        '6': 'Tourism & Hospitality',
+        '7': 'Energy & Renewable Energy',
+        '8': 'Construction & Engineering',
+        '9': 'Other'
+      };
+      
+      if (sectors[message]) {
+        session.data.primarySector = sectors[message];
+      } else if (Object.values(sectors).includes(message)) {
+        session.data.primarySector = message;
+      } else {
+        await whatsappService.sendTextMessage(phoneNumber,
+          '❌ Please type a number 1-9:');
+        return;
+      }
+      
       session.currentField = 'subsector';
       await whatsappService.sendTextMessage(phoneNumber,
-        `🔍 *Subsector:*\nBased on your primary sector (${message}), please specify your subsector.\n\nExamples:\n- Agriculture: Crop Farming, Livestock, Dairy\n- Technology: Software, FinTech, E-commerce\n- Retail: FMCG, Clothing, Household Goods\n\nPlease describe your specific subsector:`);
+        `🔍 *Subsector:*
+Based on "${session.data.primarySector}", describe your specific area:
+
+Examples:
+- Technology: Software, FinTech, E-commerce
+- Agriculture: Crop Farming, Livestock, Dairy
+- Retail: FMCG, Clothing, Household Goods
+
+Describe your subsector:`);
     
     } else if (field === 'subsector') {
       if (!message.trim()) {
         await whatsappService.sendTextMessage(phoneNumber,
-          '❌ Please specify a subsector:');
+          '❌ Please describe your subsector:');
         return;
       }
       session.data.subsector = message;
       session.currentField = 'businessDescription';
       await whatsappService.sendTextMessage(phoneNumber,
-        '📝 *Business Description:*\nPlease provide a detailed description of your business (100-300 words).\n\nInclude:\n- What products/services you offer\n- Your business model\n- Key activities and operations\n\nTake your time to write a comprehensive description:');
+        `📝 *Business Description:*
+Describe your business (2-3 sentences):
+
+Include:
+- Products/services you offer
+- Your business model
+- Key activities
+
+Describe your business:`);
     
     } else if (field === 'businessDescription') {
-      if (!message.trim() || message.length < 50) {
+      if (!message.trim() || message.length < 20) {
         await whatsappService.sendTextMessage(phoneNumber,
-          '❌ Please provide a more detailed business description (at least 100 words):');
+          '❌ Please provide a more detailed description:');
         return;
       }
       session.data.businessDescription = message;
-      
-      // Move to Section 4 - THIS WAS MISSING!
       await this.startSection4(phoneNumber, session);
     }
 
@@ -376,208 +413,126 @@ Let's start with Section 1: Personal Information
   }
 
   async startSection4(phoneNumber, session) {
-    session.currentSection = 'section4_market';
+    session.currentSection = 'section4';
     session.currentField = 'targetMarket';
-    
-    console.log('🚀 Moving to Section 4: Market & Customers');
     
     await whatsappService.sendTextMessage(phoneNumber,
       `🎯 *Section 4: Market & Customers*
 
-*Target Market:*\nPlease describe your target market (50-200 words).
+*Target Market:*
+Describe your ideal customers:
 
 Include:
-- Demographic information (age, gender, income)
-- Geographic location
-- Customer needs and pain points
+- Who they are (age, location, income)
+- Their needs and challenges
+- Why they would buy from you
 
-Describe your ideal customers:`);
+Describe your target market:`);
   }
 
   async handleSection4(phoneNumber, message, session) {
     const field = session.currentField;
-    console.log(`   Processing section4, field: ${field}, message: "${message}"`);
 
     if (field === 'targetMarket') {
       session.data.targetMarket = message;
       session.currentField = 'uniqueValue';
       await whatsappService.sendTextMessage(phoneNumber,
         `💎 *Unique Value Proposition:*
-Explain what makes your business unique (50-150 words).
+What makes your business different?
 
-What makes you different from competitors?
-Why should customers choose you?
-What special value do you provide?
+- Why choose you over competitors?
+- What special value do you provide?
+- Your competitive advantage
 
-Describe your unique advantages:`);
+Describe your unique value:`);
     
     } else if (field === 'uniqueValue') {
       session.data.uniqueValue = message;
       session.currentField = 'competitors';
       await whatsappService.sendTextMessage(phoneNumber,
         `🏆 *Key Competitors:* (Optional)
-If you know your main competitors, please list them here.\nIf not, type 'Skip':`);
+List your main competitors or type 'skip':`);
     
     } else if (field === 'competitors') {
       if (message.toLowerCase() !== 'skip') {
         session.data.competitors = message;
       }
-      
-      // PROPERLY transition to marketing channels
       session.currentField = 'marketingChannels';
-      await this.showMarketingChannels(phoneNumber, session);
+      
+      await whatsappService.sendTextMessage(phoneNumber,
+        `📢 *Marketing Channels:*
+How do you reach customers?
+1. Social Media (Facebook, Instagram, TikTok)
+2. WhatsApp / Messaging Apps
+3. Physical Stores / Pop-ups
+4. E-commerce / Website
+5. Other
+
+Type numbers (e.g., "1 3" for multiple):`);
     
     } else if (field === 'marketingChannels') {
       if (!session.data.marketingChannels) session.data.marketingChannels = [];
       
-      // Handle the response
-      if (message.includes('1') || message.toLowerCase().includes('social')) {
-        session.data.marketingChannels.push('Social Media (Facebook, Instagram, TikTok)');
-      }
-      if (message.includes('2') || message.toLowerCase().includes('whatsapp')) {
-        session.data.marketingChannels.push('WhatsApp / Messaging Apps');
-      }
-      if (message.includes('3') || message.toLowerCase().includes('physical')) {
-        session.data.marketingChannels.push('Physical Stores / Pop-ups');
-      }
-      if (message.includes('4') || message.toLowerCase().includes('e-commerce')) {
-        session.data.marketingChannels.push('E-commerce / Website');
-      }
-      if (message.includes('5') || message.toLowerCase().includes('other')) {
-        session.data.marketingChannels.push('Other');
-      }
+      if (message.includes('1')) session.data.marketingChannels.push('Social Media (Facebook, Instagram, TikTok)');
+      if (message.includes('2')) session.data.marketingChannels.push('WhatsApp / Messaging Apps');
+      if (message.includes('3')) session.data.marketingChannels.push('Physical Stores / Pop-ups');
+      if (message.includes('4')) session.data.marketingChannels.push('E-commerce / Website');
+      if (message.includes('5')) session.data.marketingChannels.push('Other');
       
       if (session.data.marketingChannels.length === 0) {
         await whatsappService.sendTextMessage(phoneNumber,
-          '❌ Please select at least one marketing channel. Tap one of the buttons above or type the number (1-5).');
+          '❌ Please select at least one. Type numbers (e.g., "1 3"):');
         return;
       }
       
-      console.log('✅ Marketing channels selected:', session.data.marketingChannels);
-      
-      // Move to funding section
       await this.startSection5(phoneNumber, session);
     }
 
     this.updateSession(phoneNumber, session);
   }
 
-  // Helper function to show marketing channels
-  async showMarketingChannels(phoneNumber, session) {
-    await whatsappService.sendTextMessage(phoneNumber,
-      `📢 *Marketing Channels:*
-How do you reach your customers? Select your main marketing channels:`);
-
-    await this.sendButtonsWithFallback(phoneNumber,
-      `Choose your marketing channels:`,
-      [
-        { title: '1. Social Media' },
-        { title: '2. WhatsApp' },
-        { title: '3. Physical Stores' },
-        { title: '4. E-commerce' },
-        { title: '5. Other' }
-      ],
-      `Please type the number for your marketing channels:
-1. Social Media (Facebook, Instagram, TikTok)
-2. WhatsApp / Messaging Apps  
-3. Physical Stores / Pop-ups
-4. E-commerce / Website
-5. Other
-
-Type the numbers (e.g., "1 3" for multiple):`
-    );
-  }
-
   async startSection5(phoneNumber, session) {
-    session.currentSection = 'section5_funding';
+    session.currentSection = 'section5';
     session.currentField = 'fundingType';
     
-    console.log('🚀 Moving to Section 5: Funding Information');
-    
     await whatsappService.sendTextMessage(phoneNumber,
-      `💰 *Section 5: Funding Information*`);
+      `💰 *Section 5: Funding Information*
 
-    await this.sendButtonsWithFallback(phoneNumber,
-      `What type of funding are you seeking?`,
-      [
-        { title: '1. Microloan' },
-        { title: '2. Term Loan' },
-        { title: '3. Equity' },
-        { title: '4. Grant' },
-        { title: '5. Other' }
-      ],
-      `What type of funding are you seeking?
+*Funding Type:*
+What funding are you seeking?
 1. Microloan
-2. Term Loan  
+2. Term Loan
 3. Equity Financing
 4. Grant
 5. Other
 
-Type the numbers (e.g., "1 4" for multiple):`
-    );
+Type numbers (e.g., "1 4" for multiple):`);
   }
 
   async handleSection5(phoneNumber, message, session) {
     const field = session.currentField;
-    console.log(`   Processing section5, field: ${field}, message: "${message}"`);
 
     if (field === 'fundingType') {
       if (!session.data.fundingType) session.data.fundingType = [];
       
-      // Handle funding type selection
-      if (message.includes('1') || message.toLowerCase().includes('microloan')) {
-        session.data.fundingType.push('Microloan');
-      }
-      if (message.includes('2') || message.toLowerCase().includes('term loan')) {
-        session.data.fundingType.push('Term Loan');
-      }
-      if (message.includes('3') || message.toLowerCase().includes('equity')) {
-        session.data.fundingType.push('Equity Financing');
-      }
-      if (message.includes('4') || message.toLowerCase().includes('grant')) {
-        session.data.fundingType.push('Grant');
-      }
-      if (message.includes('5') || message.toLowerCase().includes('other')) {
-        session.data.fundingType.push('Other');
-      }
+      if (message.includes('1')) session.data.fundingType.push('Microloan');
+      if (message.includes('2')) session.data.fundingType.push('Term Loan');
+      if (message.includes('3')) session.data.fundingType.push('Equity Financing');
+      if (message.includes('4')) session.data.fundingType.push('Grant');
+      if (message.includes('5')) session.data.fundingType.push('Other');
       
       if (session.data.fundingType.length === 0) {
         await whatsappService.sendTextMessage(phoneNumber,
-          '❌ Please select at least one funding type. Tap one of the buttons above or type the number (1-5).');
+          '❌ Please select at least one. Type numbers (e.g., "1 4"):');
         return;
       }
       
-      console.log('✅ Funding types selected:', session.data.fundingType);
-      
-      // SHOW SUMMARY before submitting
       await this.showSummaryBeforeSubmission(phoneNumber, session);
     }
 
     this.updateSession(phoneNumber, session);
   }
 
-  // Helper function to send lists with fallback
-  async sendListWithFallback(phoneNumber, body, buttonText, options) {
-    try {
-      await whatsappService.sendSimpleList(phoneNumber, body, buttonText, options);
-    } catch (error) {
-      console.log('🔄 List failed, falling back to text...');
-      let optionsText = options.map((opt, index) => `${index + 1}. ${opt.title}`).join('\n');
-      await whatsappService.sendTextMessage(phoneNumber, `${body}\n\n${optionsText}\n\nPlease reply with the number (e.g., "1"):`);
-    }
-  }
-
-  // Helper function to send buttons with fallback
-  async sendButtonsWithFallback(phoneNumber, text, buttons, fallbackText) {
-    try {
-      await whatsappService.sendButtons(phoneNumber, text, buttons);
-    } catch (error) {
-      console.log('🔄 Buttons failed, falling back to text...');
-      await whatsappService.sendTextMessage(phoneNumber, fallbackText);
-    }
-  }
-
-  // Show summary before submission
   async showSummaryBeforeSubmission(phoneNumber, session) {
     const summary = `
 📊 *YOUR BUSINESS PLAN SUMMARY*
@@ -590,7 +545,7 @@ Type the numbers (e.g., "1 4" for multiple):`
 
 🏢 *Business Details:*
 • Type: ${session.data.businessType}
-• Stage: ${session.data.businessStage} 
+• Stage: ${session.data.businessStage}
 • Employees: ${session.data.employees}
 • Ownership: ${session.data.ownership.join(', ')}
 
@@ -605,77 +560,52 @@ Type the numbers (e.g., "1 4" for multiple):`
 • Types: ${session.data.fundingType.join(', ')}
 
 ---
-✅ *Ready to submit?* Type "YES" to submit your business plan.
+✅ *Ready to submit?* Type "YES" to submit.
 🔄 Type "NO" to make changes.
     `;
 
     await whatsappService.sendTextMessage(phoneNumber, summary);
-    
-    // Change field to wait for confirmation
     session.currentField = 'confirmation';
   }
 
-  // Handle confirmation
   async handleConfirmation(phoneNumber, message, session) {
     if (message.toLowerCase() === 'yes') {
       await whatsappService.sendTextMessage(phoneNumber, '🚀 Submitting your business plan...');
       await this.completeForm(phoneNumber, session);
     } else if (message.toLowerCase() === 'no') {
       await whatsappService.sendTextMessage(phoneNumber,
-        '🔄 Let me know which section you want to change, or type "RESTART" to start over.');
-      session.currentField = 'editing';
+        '🔄 Type "RESTART" to start over.');
     } else {
       await whatsappService.sendTextMessage(phoneNumber,
-        '❌ Please type "YES" to submit your business plan or "NO" to make changes.');
+        '❌ Please type "YES" to submit or "NO" to cancel.');
     }
   }
 
   async completeForm(phoneNumber, session) {
     try {
-      console.log('🎯 Form completed, sending to Airtable...');
-      console.log('📦 Data to send:', JSON.stringify(session.data, null, 2));
+      console.log('🎯 Submitting to Airtable...');
       
-      // Send data to Airtable
       const recordId = await airtableService.createBusinessPlan(session.data);
-      session.recordId = recordId;
       
       const completionMessage = `🎉 *Congratulations!* 🎉
 
-Your business plan has been successfully submitted!
+Your business plan has been submitted!
 
-*Reference Number:* BP-${recordId.substring(0, 8).toUpperCase()}
+*Reference:* BP-${recordId.substring(0, 8).toUpperCase()}
 
-We will review your application and contact you within 5-7 business days.
+We'll review and contact you within 5-7 days.
 
-Thank you for taking the time to complete this comprehensive business plan form.
-
-For any queries, please contact our support team.
-
-Have a great day! 🌟`;
+Thank you! 🌟`;
 
       await whatsappService.sendTextMessage(phoneNumber, completionMessage);
       
-      // Clear session after successful submission
+      // Clear session
       this.userSessions.delete(phoneNumber);
       
-      console.log('✅ Form data successfully pushed to Airtable!');
-      
     } catch (error) {
-      console.error('❌ ERROR submitting form to Airtable:', error);
-      
-      let errorMessage = '❌ Sorry, there was an error submitting your form. ';
-      
-      if (error.message.includes('NOT_FOUND')) {
-        errorMessage += 'The database connection failed. Please contact support.';
-      } else if (error.message.includes('AUTHENTICATION_REQUIRED') || error.message.includes('401')) {
-        errorMessage += 'Authentication failed. Please contact support.';
-      } else if (error.message.includes('VALIDATION') || error.message.includes('422')) {
-        errorMessage += 'There was a data validation error. Please try again with different information.';
-      } else {
-        errorMessage += 'Please try again later or contact support.';
-      }
-      
-      await whatsappService.sendTextMessage(phoneNumber, errorMessage);
+      console.error('❌ Submission error:', error);
+      await whatsappService.sendTextMessage(phoneNumber,
+        '❌ Sorry, there was an error. Please try again later.');
     }
   }
 }
