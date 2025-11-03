@@ -19,5 +19,20 @@ module.exports = {
   // Server Configuration
   server: {
     port: process.env.PORT || 3000
+  },
+
+  // Supported Languages
+  languages: {
+    'en': 'English',
+    'zu': 'isiZulu',
+    'xh': 'isiXhosa',
+    'af': 'Afrikaans',
+    'nso': 'Sesotho sa Leboa',
+    'tn': 'Setswana',
+    'st': 'Sesotho',
+    'ts': 'Xitsonga',
+    'ss': 'siSwati',
+    've': 'Tshivenda',
+    'nr': 'isiNdebele'
   }
 };
